@@ -97,6 +97,48 @@
       "top": 40,
       "left": 150,
       "attrs": { "color": "green" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn_ped",
+      "top": -90,
+      "left": -90,
+      "attrs": { "color": "blue", "label": "DI BO", "key": "p" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn_emg",
+      "top": -340,
+      "left": 170,
+      "attrs": { "color": "red", "label": "KHAN CAP", "key": "e" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn_inc",
+      "top": -340,
+      "left": 270,
+      "attrs": { "color": "green", "label": "NS +5s", "key": "+" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn_dec",
+      "top": -340,
+      "left": 370,
+      "attrs": { "color": "yellow", "label": "NS -5s", "key": "-" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn_inc_ew",
+      "top": -340,
+      "left": 480,
+      "attrs": { "color": "green", "label": "EW +5s", "key": ">" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn_dec_ew",
+      "top": -340,
+      "left": 580,
+      "attrs": { "color": "yellow", "label": "EW -5s", "key": "<" }
     }
   ],
   "connections": [
@@ -139,7 +181,19 @@
     [ "uno:GND.2", "led_s_g:C", "black", [ "h3.9", "v575.9" ] ],
     [ "uno:GND.2", "led_e_r:C", "black", [ "h3.9", "v575.9", "h-384", "v-190" ] ],
     [ "uno:GND.2", "led_e_y:C", "black", [ "h3.9", "v575.9", "h-384", "v-150" ] ],
-    [ "uno:GND.2", "led_e_g:C", "black", [ "h3.9", "v575.9", "h-384", "v-110" ] ]
+    [ "uno:GND.2", "led_e_g:C", "black", [ "h3.9", "v575.9", "h-384", "v-110" ] ],
+    [ "btn_ped:1.l", "uno:A2", "blue", [ "v-200", "h400" ] ],
+    [ "btn_ped:2.l", "uno:GND.2", "black", [ "h-20", "v-300", "h400" ] ],
+    [ "btn_emg:1.l", "uno:A3", "red", [ "h20", "v-150" ] ],
+    [ "btn_emg:2.l", "uno:GND.2", "black", [ "h-20", "v-150" ] ],
+    [ "btn_inc:1.l", "uno:A4", "green", [ "h20", "v-150" ] ],
+    [ "btn_inc:2.l", "uno:GND.2", "black", [ "h-20", "v-150" ] ],
+    [ "btn_dec:1.l", "uno:A5", "gold", [ "h20", "v-150" ] ],
+    [ "btn_dec:2.l", "uno:GND.2", "black", [ "h-20", "v-150" ] ],
+    [ "btn_inc_ew:1.l", "uno:0", "green", [ "h20", "v-150" ] ],
+    [ "btn_inc_ew:2.l", "uno:GND.2", "black", [ "h-20", "v-150" ] ],
+    [ "btn_dec_ew:1.l", "uno:1", "gold", [ "h20", "v-150" ] ],
+    [ "btn_dec_ew:2.l", "uno:GND.2", "black", [ "h-20", "v-150" ] ]
   ],
   "dependencies": {}
 }
