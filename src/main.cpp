@@ -2,40 +2,22 @@
 #include <TM1637Display.h>
 
 /* ==========================================================================
- * DỰ ÁN: ĐIỀU KHIỂN HỆ THỐNG ĐÈN GIAO THÔNG NGÃ TƯ THÔNG MINH
- * Vi điều khiển: Arduino Uno
- * 
- * PHÂN CÔNG CHÂN (PIN MAPPING):
- * - Trục Bắc - Nam (NS):
- *     Đèn: Đỏ (Pin 13), Vàng (Pin 12), Xanh (Pin 11)
- *     Màn hình TM1637 Bắc: CLK (Pin 3), DIO (Pin 2)
- *     Màn hình TM1637 Nam: CLK (Pin 5), DIO (Pin 4)
- * - Trục Đông - Tây (EW):
- *     Đèn: Đỏ (Pin 10), Vàng (Pin 9), Xanh (Pin 8)
- *     Màn hình TM1637 Tây: CLK (Pin 7), DIO (Pin 6)
- *     Màn hình TM1637 Đông: CLK (Pin A1), DIO (Pin A0)
- * - Nút bấm (Push Buttons - INPUT_PULLUP, nối đất GND khi bấm):
- *     Pin A2: Nút NGƯỜI ĐI BỘ (Pedestrian)
- *     Pin A3: Nút CHẾ ĐỘ KHẨN CẤP (Emergency - Toggle)
- *     Pin A4: Nút TĂNG THỜI GIAN ĐÈN XANH BẮC-NAM (+5s)
- *     Pin A5: Nút GIẢM THỜI GIAN ĐÈN XANH BẮC-NAM (-5s)
- *     Pin 0:  Nút TĂNG THỜI GIAN ĐÈN XANH ĐÔNG-TÂY (+5s)
- *     Pin 1:  Nút GIẢM THỜI GIAN ĐÈN XANH ĐÔNG-TÂY (-5s)
+ * CẤU HÌNH CHÂN (DỰA THEO DIAGRAM.JSON)
  * ========================================================================== */
 
 // --- Cấu hình chân Đèn LED ---
-const int red1 = 13, yellow1 = 12, green1 = 11; // Trục NS
-const int red2 = 10, yellow2 = 9, green2 = 8;   // Trục EW
+const int red1 = 13, yellow1 = 12, green1 = 11; // Trục NS (Bắc - Nam)
+const int red2 = 10, yellow2 = 9, green2 = 8;   // Trục EW (Đông - Tây)
 
 // --- Cấu hình chân Nút bấm ---
-const int PIN_BTN_PED    = A2; // Nút Người đi bộ
+const int PIN_BTN_PED    = A2; // Cả 4 nút Người đi bộ đều nối chung vào A2
 const int PIN_BTN_EMG    = A3; // Nút Khẩn cấp
 const int PIN_BTN_INC_NS = A4; // Nút Tăng thời gian Xanh NS (+5s)
 const int PIN_BTN_DEC_NS = A5; // Nút Giảm thời gian Xanh NS (-5s)
 const int PIN_BTN_INC_EW = 0;  // Nút Tăng thời gian Xanh EW (+5s)
 const int PIN_BTN_DEC_EW = 1;  // Nút Giảm thời gian Xanh EW (-5s)
 
-// --- Khởi tạo 4 màn hình hiển thị TM1637 ---
+// --- Khởi tạo 4 màn hình hiển thị TM1637 (CLK, DIO) ---
 TM1637Display displayN(3, 2);
 TM1637Display displayS(5, 4);
 TM1637Display displayW(7, 6);
@@ -49,53 +31,52 @@ const int PEDESTRIAN_TIME = 10;
 const int MIN_GREEN_TIME = 10;
 const int MAX_GREEN_TIME = 60;
 
-// Thời gian cài đặt cho chu kỳ tiếp theo và thời gian đang chạy hiện tại
 int settingGreenNS = DEFAULT_GREEN_NS;
 int activeGreenNS  = DEFAULT_GREEN_NS;
 
 int settingGreenEW = DEFAULT_GREEN_EW;
 int activeGreenEW  = DEFAULT_GREEN_EW;
 
-// --- Định nghĩa các trạng thái hệ thống (Finite State Machine) ---
+// --- Định nghĩa các trạng thái hệ thống ---
 enum SystemMode {
-  MODE_NORMAL,         // Chu kỳ bình thường
-  MODE_PED_TRANSITION, // Chuyển tiếp đèn vàng trước khi nhường đường cho người đi bộ
-  MODE_PED_CROSSING,   // Đang trong 10s ưu tiên người đi bộ
-  MODE_EMERGENCY       // Chế độ khẩn cấp: nhấp nháy đèn vàng tất cả các hướng
+  MODE_NORMAL, 
+  MODE_PED_TRANSITION, 
+  MODE_PED_CROSSING, 
+  MODE_EMERGENCY 
 };
 
 enum TrafficPhase {
-  PHASE_NS_GREEN,  // NS Xanh | EW Đỏ
-  PHASE_NS_YELLOW, // NS Vàng | EW Đỏ
-  PHASE_EW_GREEN,  // NS Đỏ | EW Xanh
-  PHASE_EW_YELLOW  // NS Đỏ | EW Vàng
+  PHASE_NS_GREEN, 
+  PHASE_NS_YELLOW, 
+  PHASE_EW_GREEN, 
+  PHASE_EW_YELLOW 
 };
 
 SystemMode currentMode = MODE_NORMAL;
 TrafficPhase currentPhase = PHASE_NS_GREEN;
-TrafficPhase resumePhase = PHASE_EW_GREEN; // Pha sẽ chạy tiếp sau khi người đi bộ qua đường
+TrafficPhase resumePhase = PHASE_EW_GREEN; 
 
-// Biến đếm thời gian pha
 int timerNS = 0;
 int timerEW = 0;
 int timerPed = 0;
 int timerTransition = 0;
 
-// Quản lý nhịp thời gian không chặn (non-blocking timing)
 unsigned long lastTickMillis = 0;
 unsigned long lastBlinkMillis = 0;
 bool emergencyBlinkState = false;
 
-// Ký hiệu hiển thị gạch ngang (DASH: --) trên màn hình TM1637 khi khẩn cấp
-const uint8_t DASH_SEGMENTS[] = { SEG_G, SEG_G };
-const uint8_t BLANK_SEGMENTS[] = { 0x00, 0x00 };
+const uint8_t DASH_SEGMENTS[] = { SEG_G, SEG_G, SEG_G, SEG_G }; // Ký hiệu ----
+const uint8_t BLANK_SEGMENTS[] = { 0x00, 0x00, 0x00, 0x00 }; // Ký hiệu rỗng để tắt màn hình
 
-// Xóa 2 chữ số hiển thị
-void clearDisplay(TM1637Display &disp) {
-  disp.setSegments(BLANK_SEGMENTS, 2, 2);
+// Xóa màn hình bằng cách truyền mảng rỗng
+void clearDisplays() {
+  displayN.setSegments(BLANK_SEGMENTS);
+  displayS.setSegments(BLANK_SEGMENTS);
+  displayW.setSegments(BLANK_SEGMENTS);
+  displayE.setSegments(BLANK_SEGMENTS);
 }
 
-// --- Cấu trúc Debounce Nút bấm ---
+// Cấu trúc chống nhiễu phím (Debounce)
 struct ButtonDebounce {
   int pin;
   int lastReading;
@@ -112,7 +93,6 @@ ButtonDebounce btnDecEW = { PIN_BTN_DEC_EW, HIGH, HIGH, 0 };
 
 const unsigned long DEBOUNCE_DELAY_MS = 50;
 
-// Hàm kiểm tra nút bấm có được nhấn xuống hay không (bắt sườn âm Falling Edge)
 bool isButtonPressed(ButtonDebounce &btn) {
   int reading = digitalRead(btn.pin);
   bool pressed = false;
@@ -124,128 +104,119 @@ bool isButtonPressed(ButtonDebounce &btn) {
   if ((millis() - btn.lastDebounceTime) > DEBOUNCE_DELAY_MS) {
     if (reading != btn.stableState) {
       btn.stableState = reading;
-      // Nhấn xuống (LOW do dùng INPUT_PULLUP)
       if (btn.stableState == LOW) {
         pressed = true;
       }
     }
   }
-
   btn.lastReading = reading;
   return pressed;
 }
 
-// Điều khiển bật tắt các cụm đèn LED
 void setLight(bool r1, bool y1, bool g1, bool r2, bool y2, bool g2) {
   digitalWrite(red1, r1); digitalWrite(yellow1, y1); digitalWrite(green1, g1);
   digitalWrite(red2, r2); digitalWrite(yellow2, y2); digitalWrite(green2, g2);
 }
+// Thêm hàm trợ giúp này để tự mã hóa 4 ô LED
+void displayTime(TM1637Display &display, int timeVal)
 
-// Cập nhật số đếm ngược lên các màn hình TM1637
-void updateDisplays(int valNS, int valEW) {
-  if (valNS >= 0) {
-    displayN.showNumberDec(valNS, true, 2, 2);
-    displayS.showNumberDec(valNS, true, 2, 2);
-  } else {
-    clearDisplay(displayN);
-    clearDisplay(displayS);
+{
+  if (timeVal < 0)
+  {
+    display.setSegments(BLANK_SEGMENTS);
+    return;
   }
-
-  if (valEW >= 0) {
-    displayW.showNumberDec(valEW, true, 2, 2);
-    displayE.showNumberDec(valEW, true, 2, 2);
-  } else {
-    clearDisplay(displayW);
-    clearDisplay(displayE);
-  }
+  uint8_t segs[4];
+  segs[0] = 0x00; // Tắt hoàn toàn ô LED 1 (hàng nghìn)
+  segs[1] = 0x00; // Tắt hoàn toàn ô LED 2 (hàng trăm)
+  
+  if (timeVal > 99) timeVal = 99; // Giới hạn đồng hồ ở 2 con số
+  
+  // Tự mã hóa và hiển thị ở 2 ô LED cuối cùng
+  segs[2] = display.encodeDigit(timeVal / 10); // Lấy số hàng chục
+  segs[3] = display.encodeDigit(timeVal % 10); // Lấy số hàng đơn vị
+  
+  display.setSegments(segs); // Gửi trực tiếp xuống phần cứng
 }
 
-// Hiển thị ký hiệu khẩn cấp trên các màn hình TM1637
+// Hàm updateDisplays mới gọi đến hàm trợ giúp ở trên
+void updateDisplays(int valNS, int valEW) {
+  displayTime(displayN, valNS);
+  displayTime(displayS, valNS);
+  displayTime(displayW, valEW);
+  displayTime(displayE, valEW);
+}
 void showEmergencyDisplay(bool on) {
   if (on) {
-    displayN.setSegments(DASH_SEGMENTS, 2, 2);
-    displayS.setSegments(DASH_SEGMENTS, 2, 2);
-    displayW.setSegments(DASH_SEGMENTS, 2, 2);
-    displayE.setSegments(DASH_SEGMENTS, 2, 2);
+    displayN.setSegments(DASH_SEGMENTS);
+    displayS.setSegments(DASH_SEGMENTS);
+    displayW.setSegments(DASH_SEGMENTS);
+    displayE.setSegments(DASH_SEGMENTS);
   } else {
-    clearDisplay(displayN);
-    clearDisplay(displayS);
-    clearDisplay(displayW);
-    clearDisplay(displayE);
+    clearDisplays();
   }
 }
 
-// Khởi động pha đèn trong chu kỳ bình thường
 void startPhase(TrafficPhase phase) {
   currentPhase = phase;
   switch (phase) {
     case PHASE_NS_GREEN:
-      activeGreenNS = settingGreenNS; // Áp dụng thời gian cài đặt mới của NS!
+      activeGreenNS = settingGreenNS;
       timerNS = activeGreenNS;
-      timerEW = activeGreenNS + YELLOW_TIME; // Đỏ EW = Xanh NS + Vàng NS
-      setLight(LOW, LOW, HIGH, HIGH, LOW, LOW); // NS Xanh, EW Đỏ
+      timerEW = activeGreenNS + YELLOW_TIME; 
+      setLight(LOW, LOW, HIGH, HIGH, LOW, LOW); 
       break;
 
     case PHASE_NS_YELLOW:
       timerNS = YELLOW_TIME;
-      // timerEW giữ nguyên để đếm nốt 3s cuối của đèn đỏ
-      setLight(LOW, HIGH, LOW, HIGH, LOW, LOW); // NS Vàng, EW Đỏ
+      setLight(LOW, HIGH, LOW, HIGH, LOW, LOW); 
       break;
 
     case PHASE_EW_GREEN:
-      activeGreenEW = settingGreenEW; // Áp dụng thời gian cài đặt mới của EW!
+      activeGreenEW = settingGreenEW;
       timerEW = activeGreenEW;
-      timerNS = activeGreenEW + YELLOW_TIME; // Đỏ NS = Xanh EW + Vàng EW
-      setLight(HIGH, LOW, LOW, LOW, LOW, HIGH); // NS Đỏ, EW Xanh
+      timerNS = activeGreenEW + YELLOW_TIME; 
+      setLight(HIGH, LOW, LOW, LOW, LOW, HIGH); 
       break;
 
     case PHASE_EW_YELLOW:
       timerEW = YELLOW_TIME;
-      // timerNS giữ nguyên để đếm nốt 3s cuối của đèn đỏ
-      setLight(HIGH, LOW, LOW, LOW, HIGH, LOW); // NS Đỏ, EW Vàng
+      setLight(HIGH, LOW, LOW, LOW, HIGH, LOW);
       break;
   }
   updateDisplays(timerNS, timerEW);
 }
 
-// Kích hoạt chế độ Người đi bộ
 void triggerPedestrianMode() {
-  if (currentMode == MODE_EMERGENCY || currentMode == MODE_PED_CROSSING) {
-    return; // Đang khẩn cấp hoặc đang ưu tiên đi bộ thì không kích hoạt lại
-  }
+  if (currentMode == MODE_EMERGENCY || currentMode == MODE_PED_CROSSING) return;
 
   if (currentMode == MODE_NORMAL) {
     if (currentPhase == PHASE_NS_GREEN) {
-      // Trục NS đang xanh -> chuyển sang Vàng 3s ngay, sau đó nhường đường
       currentMode = MODE_PED_TRANSITION;
-      timerTransition = YELLOW_TIME;
-      resumePhase = PHASE_EW_GREEN; // Xong đi bộ thì đến lượt EW xanh
+      timerTransition = 5;
+      resumePhase = PHASE_EW_GREEN; 
       setLight(LOW, HIGH, LOW, HIGH, LOW, LOW);
       updateDisplays(timerTransition, timerTransition);
     } else if (currentPhase == PHASE_EW_GREEN) {
-      // Trục EW đang xanh -> chuyển sang Vàng 3s ngay, sau đó nhường đường
       currentMode = MODE_PED_TRANSITION;
-      timerTransition = YELLOW_TIME;
-      resumePhase = PHASE_NS_GREEN; // Xong đi bộ thì đến lượt NS xanh
+      timerTransition = 5;
+      resumePhase = PHASE_NS_GREEN; 
       setLight(HIGH, LOW, LOW, LOW, HIGH, LOW);
       updateDisplays(timerTransition, timerTransition);
     } else {
-      // Đang ở pha Vàng sẵn -> vào thẳng chế độ người đi bộ
       currentMode = MODE_PED_CROSSING;
       timerPed = PEDESTRIAN_TIME;
-      setLight(HIGH, LOW, LOW, HIGH, LOW, LOW); // Cả 2 trục ĐỎ
+      setLight(HIGH, LOW, LOW, HIGH, LOW, LOW); 
       updateDisplays(timerPed, timerPed);
     }
   }
 }
 
-// Kích hoạt / Tắt Chế độ khẩn cấp (Toggle)
 void toggleEmergencyMode() {
   if (currentMode != MODE_EMERGENCY) {
     currentMode = MODE_EMERGENCY;
     lastBlinkMillis = millis();
     emergencyBlinkState = true;
-    // Bật tất cả đèn Vàng, tắt Đỏ và Xanh
     setLight(LOW, HIGH, LOW, LOW, HIGH, LOW);
     showEmergencyDisplay(true);
   } else {
@@ -254,62 +225,24 @@ void toggleEmergencyMode() {
   }
 }
 
-// Tăng thời gian đèn Xanh NS thêm 5s cho chu kỳ tới
-void increaseGreenTimeNS() {
-  if (settingGreenNS + 5 <= MAX_GREEN_TIME) {
-    settingGreenNS += 5;
-  }
-}
+void increaseGreenTimeNS() { if (settingGreenNS + 5 <= MAX_GREEN_TIME) settingGreenNS += 5; }
+void decreaseGreenTimeNS() { if (settingGreenNS - 5 >= MIN_GREEN_TIME) settingGreenNS -= 5; }
+void increaseGreenTimeEW() { if (settingGreenEW + 5 <= MAX_GREEN_TIME) settingGreenEW += 5; }
+void decreaseGreenTimeEW() { if (settingGreenEW - 5 >= MIN_GREEN_TIME) settingGreenEW -= 5; }
 
-// Giảm thời gian đèn Xanh NS bớt 5s cho chu kỳ tới
-void decreaseGreenTimeNS() {
-  if (settingGreenNS - 5 >= MIN_GREEN_TIME) {
-    settingGreenNS -= 5;
-  }
-}
-
-// Tăng thời gian đèn Xanh EW thêm 5s cho chu kỳ tới
-void increaseGreenTimeEW() {
-  if (settingGreenEW + 5 <= MAX_GREEN_TIME) {
-    settingGreenEW += 5;
-  }
-}
-
-// Giảm thời gian đèn Xanh EW bớt 5s cho chu kỳ tới
-void decreaseGreenTimeEW() {
-  if (settingGreenEW - 5 >= MIN_GREEN_TIME) {
-    settingGreenEW -= 5;
-  }
-}
-
-// Quản lý kiểm tra tất cả các nút bấm liên tục (Polling không chặn)
 void handleButtons() {
-  if (isButtonPressed(btnPed)) {
-    triggerPedestrianMode();
-  }
-  if (isButtonPressed(btnEmg)) {
-    toggleEmergencyMode();
-  }
-  if (isButtonPressed(btnIncNS)) {
-    increaseGreenTimeNS();
-  }
-  if (isButtonPressed(btnDecNS)) {
-    decreaseGreenTimeNS();
-  }
-  if (isButtonPressed(btnIncEW)) {
-    increaseGreenTimeEW();
-  }
-  if (isButtonPressed(btnDecEW)) {
-    decreaseGreenTimeEW();
-  }
+  if (isButtonPressed(btnPed)) triggerPedestrianMode();
+  if (isButtonPressed(btnEmg)) toggleEmergencyMode();
+  if (isButtonPressed(btnIncNS)) increaseGreenTimeNS();
+  if (isButtonPressed(btnDecNS)) decreaseGreenTimeNS();
+  if (isButtonPressed(btnIncEW)) increaseGreenTimeEW();
+  if (isButtonPressed(btnDecEW)) decreaseGreenTimeEW();
 }
 
 void setup() {
-  // Khởi tạo các chân LED
   pinMode(red1, OUTPUT); pinMode(yellow1, OUTPUT); pinMode(green1, OUTPUT);
   pinMode(red2, OUTPUT); pinMode(yellow2, OUTPUT); pinMode(green2, OUTPUT);
 
-  // Khởi tạo các chân Nút bấm với điện trở kéo lên nội (Pull-up)
   pinMode(PIN_BTN_PED,    INPUT_PULLUP);
   pinMode(PIN_BTN_EMG,    INPUT_PULLUP);
   pinMode(PIN_BTN_INC_NS, INPUT_PULLUP);
@@ -317,97 +250,76 @@ void setup() {
   pinMode(PIN_BTN_INC_EW, INPUT_PULLUP);
   pinMode(PIN_BTN_DEC_EW, INPUT_PULLUP);
 
-  // Khởi tạo độ sáng và BẬT màn hình TM1637 (0x0f: Bit 3 = 1 bật hiển thị, Bit 0-2 = 7 độ sáng tối đa)
-  displayN.setBrightness(0x0f);
-  displayS.setBrightness(0x0f);
-  displayW.setBrightness(0x0f);
-  displayE.setBrightness(0x0f);
+  // Khởi tạo mức sáng tối đa và BẬT màn hình (tham số true cực kỳ quan trọng)
+  displayN.setBrightness(7);
+  displayS.setBrightness(7);
+  displayW.setBrightness(7);
+  displayE.setBrightness(7);
+  
+  // TEST: Hiển thị số 8888 ngay khi vừa bật nguồn
+  displayN.showNumberDec(8888);
+  displayS.showNumberDec(8888);
+  displayW.showNumberDec(8888);
+  displayE.showNumberDec(8888);
+  
+  // Dừng hệ thống 2 giây để bạn kiểm tra xem màn hình có sáng số 8888 không
+  delay(2000); 
 
-  // Bắt đầu chu kỳ pha đầu tiên
+  clearDisplays();
   startPhase(PHASE_NS_GREEN);
   lastTickMillis = millis();
 }
 
 void loop() {
-  // 1. Luôn kiểm tra nút bấm liên tục (Non-blocking polling có debounce)
   handleButtons();
-
   unsigned long currentMillis = millis();
 
-  // 2. Xử lý chế độ KHẨN CẤP (nhấp nháy đèn Vàng mỗi 500ms)
   if (currentMode == MODE_EMERGENCY) {
     if (currentMillis - lastBlinkMillis >= 500) {
       lastBlinkMillis = currentMillis;
       emergencyBlinkState = !emergencyBlinkState;
       if (emergencyBlinkState) {
-        setLight(LOW, HIGH, LOW, LOW, HIGH, LOW); // Bật tất cả đèn Vàng
+        setLight(LOW, HIGH, LOW, LOW, HIGH, LOW); 
         showEmergencyDisplay(true);
       } else {
-        setLight(LOW, LOW, LOW, LOW, LOW, LOW);   // Tắt tất cả các đèn
+        setLight(LOW, LOW, LOW, LOW, LOW, LOW);  
         showEmergencyDisplay(false);
       }
     }
-    return; // Khi khẩn cấp, bỏ qua bộ đếm chu kỳ bình thường
+    return; 
   }
 
-  // 3. Xử lý bộ đếm thời gian 1 giây cho các chế độ khác
   if (currentMillis - lastTickMillis >= 1000) {
     lastTickMillis += 1000;
 
-    // --- Chế độ Chuyển tiếp trước khi người đi bộ qua đường (Vàng 3s) ---
     if (currentMode == MODE_PED_TRANSITION) {
       timerTransition--;
       updateDisplays(timerTransition, timerTransition);
       if (timerTransition <= 0) {
-        // Hết 3s Vàng -> Cả 2 trục chuyển sang ĐỎ để người đi bộ qua đường trong 10s
         currentMode = MODE_PED_CROSSING;
         timerPed = PEDESTRIAN_TIME;
-        setLight(HIGH, LOW, LOW, HIGH, LOW, LOW); // Cả 2 trục ĐỎ
+        setLight(HIGH, LOW, LOW, HIGH, LOW, LOW); 
         updateDisplays(timerPed, timerPed);
       }
     }
-    // --- Chế độ Người đi bộ đang qua đường (10s) ---
     else if (currentMode == MODE_PED_CROSSING) {
       timerPed--;
       updateDisplays(timerPed, timerPed);
       if (timerPed <= 0) {
-        // Hết 10s người đi bộ -> Trả lại chu kỳ bình thường
         currentMode = MODE_NORMAL;
         startPhase(resumePhase);
       }
     }
-    // --- Chế độ Chu kỳ bình thường ---
     else if (currentMode == MODE_NORMAL) {
       timerNS--;
       timerEW--;
-
       updateDisplays(timerNS, timerEW);
 
-      // Kiểm tra chuyển pha
       switch (currentPhase) {
-        case PHASE_NS_GREEN:
-          if (timerNS <= 0) {
-            startPhase(PHASE_NS_YELLOW);
-          }
-          break;
-
-        case PHASE_NS_YELLOW:
-          if (timerNS <= 0) {
-            startPhase(PHASE_EW_GREEN);
-          }
-          break;
-
-        case PHASE_EW_GREEN:
-          if (timerEW <= 0) {
-            startPhase(PHASE_EW_YELLOW);
-          }
-          break;
-
-        case PHASE_EW_YELLOW:
-          if (timerEW <= 0) {
-            startPhase(PHASE_NS_GREEN);
-          }
-          break;
+        case PHASE_NS_GREEN:  if (timerNS <= 0) startPhase(PHASE_NS_YELLOW); break;
+        case PHASE_NS_YELLOW: if (timerNS <= 0) startPhase(PHASE_EW_GREEN);  break;
+        case PHASE_EW_GREEN:  if (timerEW <= 0) startPhase(PHASE_EW_YELLOW); break;
+        case PHASE_EW_YELLOW: if (timerEW <= 0) startPhase(PHASE_NS_GREEN);  break;
       }
     }
   }
